@@ -1,0 +1,251 @@
+---
+title: "Final Project Wine Quality"
+author: "Lara Vartanian 804633245"
+date: "12/14/2017"
+output: html_document
+---
+
+```{r}
+wine_complete <- read.csv("~/Documents/Stats 101A /Final Project/Wine 2017 Training Complete.csv")
+attach(wine_complete)
+```
+
+# Splitting data into 70/30
+```{r}
+# 70% of the sample size
+sample_size <- floor(0.70 * nrow(wine_complete))
+
+# Set seed to make the partition reproduceable
+set.seed(12345) # better to set odd seed
+train_ind <- sample(seq_len(nrow(wine_complete)), size = sample_size)
+
+#train data has 70% of the original dataset 
+train <- wine_complete[train_ind, ]
+#test data has 30% of the original dataset 
+test <- wine_complete[-train_ind, ]
+
+# Qual has the original Quality values
+Qual <- test$Quality  # so this is the y 
+
+# Predicted has predicted Quality of the 10% of the dataset 
+predicted_yvalues <- predict(previous_working_2, test) # this is my y-hat 
+
+# Check the SSE for the 10% of training data 
+(errors_for_70_30 <- sum((Qual - predicted_yvalues)^2))
+```
+
+Attempt 1: doing MLR with all predictors with no transformations yet 
+```{r}
+m1 <- lm(Quality ~ alcohol + density + pH + volatile.acidity + total.sulfur.dioxide + fixed.acidity + citric.acid + residual.sugar + chlorides + free.sulfur.dioxide + sulphates + as.numeric(Wine.Color))
+summary(m1)
+anova(m1) # top 4 SSreg contributors: density, pH, volatile.acidity, total.sulfur.dioxide
+par(mfrow = c(2,2))
+plot(m1)
+
+library(corrplot)
+cormat <- round(cor(wine_complete[,unlist(lapply(wine_complete, is.numeric))], use = "pairwise.complete.obs"), 3)
+cormat[1,]
+library(car)
+scatterplotMatrix(cormat)
+par(mfrow=c(1,1))
+corrplot.mixed(cormat, lower = "number", upper = "pie")
+
+pairs(Quality ~ alcohol + density + pH + volatile.acidity + total.sulfur.dioxide + fixed.acidity + citric.acid + residual.sugar + chlorides + free.sulfur.dioxide + sulphates)
+
+vif(m1)
+#removing density 
+summary(powerTransform(cbind(Quality, alcohol, pH, volatile.acidity, total.sulfur.dioxide, residual.sugar, chlorides, free.sulfur.dioxide, sulphates)~1))# took out citric acid & density 
+
+```
+
+# T R A N S F O R M A T I O N 
+```{r}
+m1_minus_denisty <- lm(Quality ~ alcohol + pH + volatile.acidity + total.sulfur.dioxide + fixed.acidity + citric.acid + residual.sugar + chlorides + free.sulfur.dioxide + sulphates + as.numeric(Wine.Color))
+summary(m1_minus_denisty)
+# alcohol, pH, volatile aciditiy, total sulfur dioxide, residual sugar, free sulfur dioxide and sulphates all are super significant 
+
+library(MASS)
+par(mfrow=c(1,1))
+boxcox(m1_minus_denisty)
+
+summary(powerTransform(cbind(Quality, alcohol, pH, volatile.acidity, total.sulfur.dioxide, residual.sugar, chlorides, free.sulfur.dioxide, sulphates)~1))# took out citric acid & density 
+
+
+m2 <- lm(Quality ~ I(alcohol^(-2)) + I(pH^(-1.5)) + log(volatile.acidity) + sqrt(total.sulfur.dioxide) + log(residual.sugar) + I(chlorides^(-.5)) + I(free.sulfur.dioxide^(.25)) + I(sulphates^(-.5)), data = train)
+summary(m2)
+# SSE based on m2 is 3183.162
+
+m2_1 <- lm(Quality ~ I(alcohol^(-2)) + I(pH^(-1.5)) + log(volatile.acidity) + I(total.sulfur.dioxide^(.75)) + log(residual.sugar) + I(chlorides^(-.25)) + I(free.sulfur.dioxide^(.25)) + I(sulphates^(-.5)), data = train)
+summary(m2_1)
+vif(m2_1)
+# SSE = 3189
+
+mstd <- lm(Quality ~ alcohol + pH + volatile.acidity + total.sulfur.dioxide + fixed.acidity + citric.acid + residual.sugar + chlorides + free.sulfur.dioxide + sulphates)
+par(mfrow = c(2,2))
+plot(m2)
+summary(m2)
+vif(m2)
+library(alr3)
+par(mfrow=c(2,2))
+mmp(m2,I(alcohol^(-2)),key=NULL)
+mmp(m2,I(pH^(-1.5)),key=NULL)
+mmp(m2,log(volatile.acidity),key=NULL)
+mmp(m2,sqrt(total.sulfur.dioxide),key=NULL)
+mmp(m2,log(residual.sugar),key=NULL)
+mmp(m2,citric.acid,key=NULL)
+mmp(m2,I(chlorides^(-.5)),key=NULL)
+mmp(m2,I(free.sulfur.dioxide^(.25)),key=NULL)
+mmp(m2,I(sulphates^(-.5)),key=NULL)
+mmp(m2,mstd$fitted.values,xlab="Fitted Values",key=NULL)
+# fits better
+```
+alcohol, pH, volatile aciditiy, total sulfur dioxide, residual sugar, free sulfur dioxide and sulphates all are super significant 
+
+
+# P O L Y N O M I A L  R E G R E S S I O N 
+I want to see if a polynomial regression gives a better model, so I attempt to create a polynomial regression, applying poly to the significant variables to see if my R-squared increases relative to the model with transformations suggested with function powerTransform
+```{r}
+model_try_2 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(total.sulfur.dioxide, 3, raw = T) + poly(pH, 3, raw = T) + poly(residual.sugar, 1, raw = T) + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T), data = train)
+summary(model_try_2)
+vif(model_try_2)
+# total sulfur dioxide and free sulfue dioxide have VIF > 5. This leads to multicollinearity problem
+# SSE = 3126.072
+
+m2_poly <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + poly(residual.sugar, 3, raw = T) + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T), data = train)
+summary(m2_poly)  
+# SSE = 3292.134
+
+model_try_2.7 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T) + poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T), data = train)
+summary(model_try_2.7)
+# SSE = 3142
+vif(model_try_2.7)  # VIF < 5 
+
+# SSE = 3135 if sulphates is 1 
+
+# TRY with diff see
+# 3176 with poly 3 
+# 3177  with poly 1 
+
+# 3190 wuth suplates 2 
+# 3182 with sulphates 1 
+# 
+
+
+# add another variable or not ? Should i add chlorides ? use anova
+
+m2_poly_1 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T) + poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(chlorides, 3, raw = T) + poly(sulphates, 3, raw = T), data = train)
+summary(m2_poly_1)
+# SSE = 3144 
+vif(m2_poly_1)  # VIF < 5
+anova(m2_poly_1)
+
+# Check if we should add chlorides or not 
+anova(model_try_2.7, m2_poly_1) 
+# it is not significant so I will drop variable chlorides 
+```
+
+Adding Interactions
+```{r}
+model_interact <- lm(Quality ~ .*., data = train)
+summary(model_interact)
+# significant interactions: Wine.ColorW:citric.acid, Wine.ColorW:density, Wine.ColorW:alcohol, citric.acid:free.sulfur.dioxide
+# Super significant interactions: Wine.ColorW:pH, fixed.acidity:chlorides, volatile.acidity:pH, chlorides:pH, chlorides:alcohol
+
+model_interact_1 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T), alcohol:Wine.Color, data = train)
+summary(model_interact_1)
+
+
+model_try_2.7_4 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T) + alcohol:Wine.Color + Wine.Color:pH, data = train)  
+summary(model_try_2.7_4)
+vif(model_try_2.7_4)
+
+
+model_interact_2 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T), poly(alcohol, 3, raw = T):Wine.Color, data = train)
+summary(model_interact_2)
+# SSE = 3142
+vif(model_try_2.7)  # VIF < 5 
+
+
+
+model_interact_m2 <- lm(Quality ~ I(alcohol^(-2)) + I(pH^(-1.5)) + log(volatile.acidity) + sqrt(total.sulfur.dioxide) + log(residual.sugar) + I(chlorides^(-.5)) + I(free.sulfur.dioxide^(.25)) + I(sulphates^(-.5)) + Wine.Color:I(pH^(-1.5)) + I(alcohol^(-2)):Wine.Color, data = train)
+summary(model_interact_m2)
+# SSE = 3150.155
+vif(model_interact_m2)
+par(mfrow=c(2,2))
+plot(model_interact_m2)
+
+#3164: no transformed interaction
+# SSE: 3192
+
+
+previous_working <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T) + poly(alcohol, 3, raw = T):Wine.Color + Wine.Color:poly(pH, 3, raw = T), data = train)
+summary(previous_working)
+vif(previous_working)  # GVIF^(1/(2*Df)) < 5 except for interaction term between poly pH and wine color which is expected since it is an interaction 
+
+# SSE: 3127.134
+
+previous_working_1 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T) + poly(alcohol, 3, raw = T):Wine.Color + Wine.Color:poly(pH, 3, raw = T) + poly(volatile.acidity, 3, raw = T): poly(pH, 3, raw = T), data = train)
+summary(previous_working_1)
+vif(previous_working_1) # look at GVIF^(1/(2*Df)) to compare across dimensions
+
+# SSE 3131 
+
+anova(previous_working, previous_working_1)
+# interaction between poly volatile acidity and poly pH should not be dropped 
+
+par(mfrow=c(2,2))
+plot(previous_working_1)
+
+previous_working_2 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T) + poly(alcohol, 3, raw = T):Wine.Color + Wine.Color:poly(pH, 3, raw = T) + poly(volatile.acidity, 3, raw = T): poly(pH, 3, raw = T) + chlorides:poly(pH, 3, raw = T), data = train)
+summary(previous_working_2)
+# SSE = 3130 
+
+anova(previous_working_1, previous_working_2)
+# can drop the interaction between chlorides and pH 
+
+
+# ALSO WANTED TO CHECK SSE OF INTERACTIONS WITH THE TRANSOFRMATION SUGGESTED WITH POWERTRANSFORM 
+
+model_interact_m3 <- lm(Quality ~ I(alcohol^(-2)) + I(pH^(-1.5)) + log(volatile.acidity) + sqrt(total.sulfur.dioxide) + log(residual.sugar) + I(chlorides^(-.5)) + I(free.sulfur.dioxide^(.25)) + I(sulphates^(-.5)) + Wine.Color:I(pH^(-1.5)) + I(alcohol^(-2)):Wine.Color + log(volatile.acidity):I(pH^(-1.5)), data = train)
+summary(model_interact_m3)
+
+# 3193
+
+
+model_interact_m4 <- lm(Quality ~ I(alcohol^(-2)) + I(pH^(-1.5)) + log(volatile.acidity) + sqrt(total.sulfur.dioxide) + log(residual.sugar) + I(chlorides^(-.5)) + I(free.sulfur.dioxide^(.25)) + I(sulphates^(-.5)) + Wine.Color:I(pH^(-1.5)) + alcohol:Wine.Color + volatile.acidity:pH + chlorides:pH, data = train)
+summary(model_interact_m4)
+vif(model_interact_m4)
+# 3149 SSE 
+
+```
+
+# W O R K I N G  &  F I N A L  M O D E L 
+```{r}
+previous_working_1 <- lm(Quality ~ poly(alcohol, 3, raw = T)+ poly(volatile.acidity, 3, raw = T)+ poly(pH, 3, raw = T) + residual.sugar + poly(free.sulfur.dioxide, 3, raw = T) + poly(sulphates, 3, raw = T) + poly(alcohol, 3, raw = T):Wine.Color + Wine.Color:poly(pH, 3, raw = T) + poly(volatile.acidity, 3, raw = T): poly(pH, 3, raw = T), data = train)
+summary(previous_working_1)
+vif(previous_working_1) # look at GVIF^(1/(2*Df)) to compare across dimensions
+
+# SSE 3131 
+
+par(mfrow=c(2,2))
+plot(previous_working_1)
+
+```
+
+
+check correlation plot to see if normal distribution  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
